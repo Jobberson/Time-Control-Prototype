@@ -1,36 +1,29 @@
 using UnityEngine;
-using System.Collections;
 
 public class TimeController : MonoBehaviour
 {
     public static TimeController Instance { get; private set; }
 
-    [Header("Time Scale")]
-    [SerializeField, Range(0.0f, 1.0f)] private float minScale = 0.02f;
-    [SerializeField, Range(0.5f, 1.0f)] private float maxScale = 1.0f;
-    [SerializeField] private float smoothingTime = 0.08f;
+    [Header("SUPERHOT Time")]
+    [SerializeField, Range(0f, 1f)] private float stoppedScale = 0.02f;
+    [SerializeField, Range(0f, 1f)] private float activeScale = 1f;
+
+    [Tooltip("How fast time snaps between stopped and active (unscaled).")]
+    [SerializeField] private float snapSpeed = 40f;
+
+    [Tooltip("Minimum activity needed to wake time.")]
+    [SerializeField] private float activityThreshold = 0.01f;
 
     [Header("Physics")]
     [SerializeField] private float baseFixedDeltaTime = 0.02f;
     [SerializeField] private float minFixedDeltaTime = 0.002f;
 
-    [Header("Weights")]
-    [SerializeField, Range(0.0f, 1.0f)] private float moveWeight = 0.7f;
-    [SerializeField, Range(0.0f, 1.0f)] private float lookWeight = 0.3f;
+    public float CurrentScale { get; private set; }
 
-    [Header("Debug")]
-    public bool showOnScreen = true;
-
-    public float CurrentScale { get; private set; } = 1.0f;
-
-    // external inputs
-    private float _moveIntensity;
-    private float _lookIntensity;
-
-    // impulses
-    private float _impulseIntensity;
+    private float _move;
+    private float _look;
+    private float _impulse;
     private float _desiredScale;
-    private float _smoothVel;
 
     private void Awake()
     {
@@ -43,72 +36,35 @@ public class TimeController : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        CurrentScale = maxScale;
-        _desiredScale = maxScale;
-        Time.timeScale = CurrentScale;
-        Time.fixedDeltaTime = Mathf.Max(baseFixedDeltaTime * CurrentScale, minFixedDeltaTime);
+        CurrentScale = activeScale;
+        _desiredScale = activeScale;
+        ApplyTime();
     }
 
     private void Update()
     {
-        float activity = Mathf.Clamp01(_moveIntensity * moveWeight + _lookIntensity * lookWeight + _impulseIntensity);
-        float target = Mathf.Lerp(minScale, maxScale, activity);
+        float activity = Mathf.Max(_move, _look, _impulse);
+        float target = activity > activityThreshold ? activeScale : stoppedScale;
 
-        _desiredScale = Mathf.SmoothDamp(_desiredScale, target, ref _smoothVel, smoothingTime);
+        _desiredScale = Mathf.MoveTowards(
+            _desiredScale,
+            target,
+            snapSpeed * Time.unscaledDeltaTime
+        );
 
         CurrentScale = _desiredScale;
+        ApplyTime();
+
+        _impulse = 0f; // impulses are one-frame spikes
+    }
+
+    private void ApplyTime()
+    {
         Time.timeScale = CurrentScale;
-
         Time.fixedDeltaTime = Mathf.Max(baseFixedDeltaTime * CurrentScale, minFixedDeltaTime);
-
-        DecayImpulse();
-
-        if (showOnScreen)
-        {
-            DrawOverlay();
-        }
     }
 
-    public void SetMoveIntensity(float normalized)
-    {
-        _moveIntensity = Mathf.Clamp01(normalized);
-    }
-
-    public void SetLookIntensity(float normalized)
-    {
-        _lookIntensity = Mathf.Clamp01(normalized);
-    }
-
-    /// <summary>
-    /// Adds a temporary boost to activity, ex: on firing.
-    /// </summary>
-    public void AddImpulse(float amount, float duration)
-    {
-        StopCoroutine(nameof(ImpulseRoutine));
-        StartCoroutine(ImpulseRoutine(amount, duration));
-    }
-
-    private IEnumerator ImpulseRoutine(float amount, float duration)
-    {
-        _impulseIntensity = Mathf.Clamp01(_impulseIntensity + amount);
-        float t = 0f;
-        while (t < duration)
-        {
-            t += Time.unscaledDeltaTime;
-            yield return null;
-        }
-        _impulseIntensity = 0f;
-    }
-
-    private void DecayImpulse()
-    {
-        // Keep blank or add smoothing here.
-    }
-
-    private void DrawOverlay()
-    {
-        // simple top-left text
-        GUI.color = Color.white;
-        GUI.Label(new Rect(10, 10, 280, 24), $"Time Scale: {CurrentScale:F3}");
-    }
+    public void SetMove(float v) => _move = Mathf.Clamp01(v);
+    public void SetLook(float v) => _look = Mathf.Clamp01(v);
+    public void AddImpulse(float v) => _impulse = Mathf.Clamp01(_impulse + v);
 }
